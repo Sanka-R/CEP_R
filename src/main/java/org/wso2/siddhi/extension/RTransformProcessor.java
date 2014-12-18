@@ -1,5 +1,6 @@
 package org.wso2.siddhi.extension;
 
+import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Queue;
@@ -18,10 +19,13 @@ import org.wso2.siddhi.core.event.in.InStream;
 import org.wso2.siddhi.core.executor.expression.ExpressionExecutor;
 import org.wso2.siddhi.core.query.processor.transform.TransformProcessor;
 import org.wso2.siddhi.query.api.definition.Attribute;
+import org.wso2.siddhi.query.api.definition.Attribute.Type;
 import org.wso2.siddhi.query.api.definition.StreamDefinition;
 import org.wso2.siddhi.query.api.expression.Expression;
 import org.wso2.siddhi.query.api.expression.constant.StringConstant;
 import org.wso2.siddhi.query.api.extension.annotation.SiddhiExtension;
+
+import com.hazelcast.query.impl.AttributeType;
 
 @SiddhiExtension(namespace = "R", function = "runScript")
 public class RTransformProcessor extends TransformProcessor {
@@ -32,7 +36,7 @@ public class RTransformProcessor extends TransformProcessor {
 	long lastRun;
 	long duration;
 	
-	String[] eventAttributeNames;
+	List<String> eventAttributeNames = new ArrayList<String>();
 	Queue<InEvent> eventList = new LinkedList<InEvent>();
 	
 	REXP outputs;
@@ -71,17 +75,17 @@ public class RTransformProcessor extends TransformProcessor {
 		if (run) {			
 			try {
 				InEvent event;
-				double[][] eventData= new double[eventAttributeNames.length][eventList.size()];
+				double[][] eventData= new double[eventAttributeNames.size()][eventList.size()];
 				int index=0;
 				while(!eventList.isEmpty()) {
 					event = eventList.poll();
-					for (int j = 0; j < eventAttributeNames.length; j++) {
-						eventData[j][index] = (Double) event.getData(j);
+					for (int j = 0; j < eventAttributeNames.size(); j++) {
+						eventData[j][index] = (double) event.getData(j);
 					}
 					index++;
 				}
-				for (int j = 0; j < eventAttributeNames.length; j++) {
-					re.assign(eventAttributeNames[j], new REXPDouble(eventData[j]), env);
+				for (int j = 0; j < eventAttributeNames.size(); j++) {
+					re.assign(eventAttributeNames.get(j), new REXPDouble(eventData[j]), env);
 				}
 				re.eval(script, env, false);
 				REXP x = re.eval(outputs, env, true);
@@ -157,10 +161,16 @@ public class RTransformProcessor extends TransformProcessor {
 				.name("ROutputStream");
 		String[] vars = outputString.split(",");
 		for (String var : vars) {
-			streamDef = streamDef.attribute(var, Attribute.Type.STRING);
+			streamDef = streamDef.attribute(var, Attribute.Type.DOUBLE);
 		}
 		this.outStreamDefinition = streamDef;
-		eventAttributeNames = inStreamDefinition.getAttributeNameArray();
+		List<Attribute> attributeList = inStreamDefinition.getAttributeList();
+		for(Attribute attr : attributeList) {
+			if (attr.getType() == Attribute.Type.DOUBLE) {
+				eventAttributeNames.add(attr.getName());
+			}
+		}
+		
 		
 		scriptString = "c(" + outputString + ")";
 		//scriptString a = new StringBuilder("c(").append(outputString).append(")").toString();
