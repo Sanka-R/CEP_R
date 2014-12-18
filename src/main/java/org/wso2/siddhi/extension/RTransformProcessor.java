@@ -1,12 +1,15 @@
 package org.wso2.siddhi.extension;
 
-import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
-import java.util.Map;
+import java.util.Queue;
 
 import org.apache.log4j.Logger;
-import org.rosuda.JRI.REXP;
-import org.rosuda.JRI.Rengine;
+import org.rosuda.REngine.REXP;
+import org.rosuda.REngine.REXPDouble;
+import org.rosuda.REngine.REXPMismatchException;
+import org.rosuda.REngine.REngineException;
+import org.rosuda.REngine.JRI.JRIEngine;
 import org.wso2.siddhi.core.config.SiddhiContext;
 import org.wso2.siddhi.core.event.Event;
 import org.wso2.siddhi.core.event.in.InEvent;
@@ -23,35 +26,36 @@ import org.wso2.siddhi.query.api.extension.annotation.SiddhiExtension;
 @SiddhiExtension(namespace = "R", function = "runScript")
 public class RTransformProcessor extends TransformProcessor {
 
-	String script;
-	String outPutVariables;
+//	String script;
 	boolean time = true;
 	int eventCount;
-	int currentCount;
-
 	long lastRun;
 	long duration;
-	static Rengine re;
+	
+	String[] eventAttributeNames;
+	Queue<InEvent> eventList = new LinkedList<InEvent>();
+	
+	REXP outputs;
+	REXP script;
+	REXP env;
+	
+	static JRIEngine re;
 	static Logger log = Logger.getLogger("RTransformProcessor");
-	private Map<String, Integer> paramPositions = new HashMap<String, Integer>();
 
-	// ?? 
 	static {
-		if (!Rengine.versionCheck()) {
-			log.error("** Version mismatch - Java files don't match library version.");
+		try {
+			re = new JRIEngine();
+		} catch (REngineException e) {
+			log.info(e.getMessage());
 		}
-		log.info("Creating Rengine");
-		String arr[] = { "--no-save" };
-		re = new Rengine(arr, false, null);
-		log.info("Rengine created, waiting for R");
-		if (!re.waitForR()) {
-			log.error("Cannot load R");
-		}
-		log.info("Successfully loaded R");
 	}
 
+	/* (non-Javadoc)
+	 * @see org.wso2.siddhi.core.query.processor.transform.TransformProcessor#processEvent(org.wso2.siddhi.core.event.in.InEvent)
+	 */
 	@Override
 	protected InStream processEvent(InEvent inEvent) {
+		eventList.add(inEvent);
 		boolean run = false;
 		if (time) {
 			if (System.currentTimeMillis() >= lastRun + duration) {
@@ -59,32 +63,41 @@ public class RTransformProcessor extends TransformProcessor {
 				lastRun = System.currentTimeMillis();
 			}
 		} else {
-			currentCount++;
-			if (currentCount == eventCount) {
+			if (eventList.size()==eventCount) {
 				run = true;
-				currentCount = 0;
 			}
 		}
 
-		if (run) {
-			REXP x;
-			String[] lines = script.split(";");
-			for (String line : lines) {
-				re.eval(line, false);
-				log.info(line);
+		if (run) {			
+			try {
+				InEvent event;
+				double[][] eventData= new double[eventAttributeNames.length][eventList.size()];
+				int index=0;
+				while(!eventList.isEmpty()) {
+					event = eventList.poll();
+					for (int j = 0; j < eventAttributeNames.length; j++) {
+						eventData[j][index] = (Double) event.getData(j);
+					}
+					index++;
+				}
+				for (int j = 0; j < eventAttributeNames.length; j++) {
+					re.assign(eventAttributeNames[j], new REXPDouble(eventData[j]), env);
+				}
+				re.eval(script, env, false);
+				REXP x = re.eval(outputs, env, true);
+				
+				double[] out = x.asDoubles();
+				Object[] data = new Object[out.length];
+				for (int i = 0; i < out.length; i++) {
+					data[i] = out[i];
+					log.info(out[i]);
+				}
+				return new InEvent(inEvent.getStreamId(),
+						System.currentTimeMillis(), data);
+			} catch (REngineException | REXPMismatchException e) {
+				log.info(e.getMessage());
+				return null;
 			}
-			x = re.eval("c(" + outPutVariables + ")");
-			double[] out = x.asDoubleArray();
-			Object[] data = new Object[out.length];
-
-			for (int i = 0; i < out.length; i++) {
-				data[i] = out[i] + "";
-				log.info(out[i]);
-			}
-			currentCount = 0;
-			return new InEvent(inEvent.getStreamId(),
-					System.currentTimeMillis(), data);
-
 		}
 		return null; //??
 
@@ -121,11 +134,11 @@ public class RTransformProcessor extends TransformProcessor {
 			log.error("Parameters count is not matching, There should be three parameters ");
 		}
 
-		script = ((StringConstant) expressions[0]).getValue();
+		String scriptString = ((StringConstant) expressions[0]).getValue();
 		String temp = ((StringConstant) expressions[1]).getValue().trim();
-		outPutVariables = ((StringConstant) expressions[2]).getValue();
+		String outputString = ((StringConstant) expressions[2]).getValue();
 		log.info(script);
-		log.info(outPutVariables);
+		log.info(outputString);
 
 		if (temp.endsWith("s")) {
 			duration = Integer.parseInt(temp.substring(0, temp.length() - 1)
@@ -137,18 +150,31 @@ public class RTransformProcessor extends TransformProcessor {
 			lastRun = System.currentTimeMillis();
 		} else {
 			eventCount = Integer.parseInt(temp);
-			currentCount = 0;
 			time = false;
 		}
 
 		StreamDefinition streamDef = new StreamDefinition()
 				.name("ROutputStream");
-		String[] vars = outPutVariables.split(",");
+		String[] vars = outputString.split(",");
 		for (String var : vars) {
 			streamDef = streamDef.attribute(var, Attribute.Type.STRING);
 		}
 		this.outStreamDefinition = streamDef;
-
+		eventAttributeNames = inStreamDefinition.getAttributeNameArray();
+		
+		scriptString = "c(" + outputString + ")";
+		//scriptString a = new StringBuilder("c(").append(outputString).append(")").toString();
+		
+		try {
+			// Create a new R environment 
+			env = re.newEnvironment(null, true);
+			// Parse the expression
+			outputs = re.parse(outputString, false);
+			// Parse the script
+			script = re.parse(scriptString, false);
+		} catch (REXPMismatchException | REngineException e) {
+			log.info(e.getMessage());
+		}
 	}
 
 	@Override
