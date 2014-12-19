@@ -78,10 +78,17 @@ public class RTransformProcessor extends TransformProcessor {
 				InEvent event;
 				double[][] eventData= new double[eventAttributeNames.size()][eventList.size()];
 				int index=0;
+				log.info("Running R script for events: ");
 				while(!eventList.isEmpty()) {
 					event = eventList.poll();
+					log.info(event);
 					for (int j = 0; j < eventAttributeNames.size(); j++) {
-						eventData[j][index] = (double) event.getData(j);
+						if(event.getData(j).getClass() == Double.class)
+							eventData[j][index] = (Double) event.getData(j);
+						else if(event.getData(j).getClass() == Long.class)
+							eventData[j][index] = ((Long) event.getData(j)).doubleValue();
+						else
+							eventData[j][index] = 0.0;
 					}
 					index++;
 				}
@@ -99,9 +106,10 @@ public class RTransformProcessor extends TransformProcessor {
 				}
 				return new InEvent(inEvent.getStreamId(),
 						System.currentTimeMillis(), data);
-			} catch (REngineException | REXPMismatchException e) {
+			} catch (REXPMismatchException e) {
 				log.info(e.getMessage());
-				return null;
+			} catch (REngineException e) {
+				log.info(e.getMessage());
 			}
 		}
 		return null; //??
@@ -142,7 +150,7 @@ public class RTransformProcessor extends TransformProcessor {
 		String scriptString = ((StringConstant) expressions[0]).getValue();
 		String temp = ((StringConstant) expressions[1]).getValue().trim();
 		String outputString = ((StringConstant) expressions[2]).getValue();
-		log.info(script);
+		log.info(scriptString);
 		log.info(outputString);
 
 		if (temp.endsWith("s")) {
@@ -176,8 +184,8 @@ public class RTransformProcessor extends TransformProcessor {
 		}
 		
 		
-		scriptString = "c(" + outputString + ")";
-		//scriptString a = new StringBuilder("c(").append(outputString).append(")").toString();
+		outputString = "c(" + outputString + ")";
+		//outputString a = new StringBuilder("c(").append(outputString).append(")").toString();
 		
 		try {
 			// Create a new R environment 
@@ -186,7 +194,9 @@ public class RTransformProcessor extends TransformProcessor {
 			outputs = re.parse(outputString, false);
 			// Parse the script
 			script = re.parse(scriptString, false);
-		} catch (REXPMismatchException | REngineException e) {
+		} catch (REXPMismatchException e) {
+			log.info(e.getMessage());
+		} catch (REngineException e) {
 			log.info(e.getMessage());
 		}
 	}
