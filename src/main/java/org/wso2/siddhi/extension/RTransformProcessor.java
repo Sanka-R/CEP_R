@@ -6,13 +6,12 @@ import java.util.List;
 import java.util.Queue;
 
 import org.apache.log4j.Logger;
-
 import org.rosuda.REngine.REXP;
 import org.rosuda.REngine.REXPDouble;
 import org.rosuda.REngine.REXPMismatchException;
+import org.rosuda.REngine.REXPWrapper;
 import org.rosuda.REngine.REngineException;
 import org.rosuda.REngine.JRI.JRIEngine;
-
 import org.wso2.siddhi.core.config.SiddhiContext;
 import org.wso2.siddhi.core.event.Event;
 import org.wso2.siddhi.core.event.in.InEvent;
@@ -21,6 +20,7 @@ import org.wso2.siddhi.core.event.in.InStream;
 import org.wso2.siddhi.core.executor.expression.ExpressionExecutor;
 import org.wso2.siddhi.core.query.processor.transform.TransformProcessor;
 import org.wso2.siddhi.query.api.definition.Attribute;
+import org.wso2.siddhi.query.api.definition.Attribute.Type;
 import org.wso2.siddhi.query.api.definition.StreamDefinition;
 import org.wso2.siddhi.query.api.expression.Expression;
 import org.wso2.siddhi.query.api.expression.constant.StringConstant;
@@ -37,8 +37,8 @@ public class RTransformProcessor extends TransformProcessor {
 	long lastRun;
 	long duration;
 	
-	List<String> eventAttributeNames = new ArrayList<String>();
-	Queue<InEvent> eventList = new LinkedList<InEvent>();
+	List<Attribute> eventAttributes = new ArrayList<Attribute>();
+	List<InEvent> eventList = new LinkedList<InEvent>();
 	
 	REXP outputs;
 	REXP script;
@@ -75,25 +75,40 @@ public class RTransformProcessor extends TransformProcessor {
 
 		if (run) {			
 			try {
-				InEvent event;
-				double[][] eventData= new double[eventAttributeNames.size()][eventList.size()];
+				Type type;
+				Object[] eventData= new Object[eventAttributes.size()];
+				for (int j = 0; j < eventAttributes.size(); j++) {
+					type = eventAttributes.get(j).getType();
+					switch(type) {
+						case DOUBLE:
+						case FLOAT:
+							eventData[j] = new Double[eventList.size()];
+							break;
+						case INT:
+							eventData[j] = new Integer[eventList.size()];
+							break;
+						case LONG:
+							eventData[j] = new Long[eventList.size()];
+							break;
+						case BOOL:
+							eventData[j] = new Boolean[eventList.size()];
+							break;
+						case STRING:
+							eventData[j] = new String[eventList.size()];
+							break;
+						default:
+							eventData[j] = new Object[eventList.size()];
+					}
+				}
 				int index=0;
-				log.info("Running R script for events: ");
-				while(!eventList.isEmpty()) {
-					event = eventList.poll();
-					log.info(event);
-					for (int j = 0; j < eventAttributeNames.size(); j++) {
-						if(event.getData(j).getClass() == Double.class)
-							eventData[j][index] = (Double) event.getData(j);
-						else if(event.getData(j).getClass() == Long.class)
-							eventData[j][index] = ((Long) event.getData(j)).doubleValue();
-						else
-							eventData[j][index] = 0.0;
+				for(Event event:eventList) {
+					for (int j = 0; j < eventAttributes.size(); j++) {
+						((Object[])eventData[j])[index] = event.getData(j);
 					}
 					index++;
 				}
-				for (int j = 0; j < eventAttributeNames.size(); j++) {
-					re.assign(eventAttributeNames.get(j), new REXPDouble(eventData[j]), env);
+				for (int j = 0; j < eventAttributes.size(); j++) {
+					re.assign(eventAttributes.get(j).getName(), REXPWrapper.wrap(eventData[j]), env);
 				}
 				re.eval(script, env, false);
 				REXP x = re.eval(outputs, env, true);
@@ -104,6 +119,7 @@ public class RTransformProcessor extends TransformProcessor {
 					data[i] = out[i];
 					log.info(out[i]);
 				}
+				eventList.clear();
 				return new InEvent(inEvent.getStreamId(),
 						System.currentTimeMillis(), data);
 			} catch (REXPMismatchException e) {
@@ -179,7 +195,7 @@ public class RTransformProcessor extends TransformProcessor {
 					|| attr.getType() == Attribute.Type.LONG
 					|| attr.getType() == Attribute.Type.INT
 					|| attr.getType() == Attribute.Type.FLOAT) {
-				eventAttributeNames.add(attr.getName());
+				eventAttributes.add(attr);
 			}
 		}
 		
