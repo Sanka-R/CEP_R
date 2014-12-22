@@ -4,8 +4,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>org.test</groupId>
-    <artifactId>window-extension</artifactId>
+    <groupId>org.wso2.siddhi.extension</groupId>
     <version>1.0-SNAPSHOT</version>
 
     <repositories>
@@ -13,11 +12,6 @@
             <id>wso2-maven2-repository</id>
             <name>WSO2 Maven2 Repository</name>
             <url>http://dist.wso2.org/maven2</url>
-        </repository>
-        <repository>
-            <id>R-external-repository</id>
-            <name>R External Repository</name>
-            <url>http://www.ironiacorp.com/repo/maven2</url>
         </repository>
     </repositories>
 
@@ -28,19 +22,19 @@
             <version>2.0.0-wso2v4</version>
         </dependency>
         <dependency>
-            <groupId>org.rosuda</groupId>
-            <artifactId>jri</artifactId>
-            <version>0.9.5</version>
+            <groupId>com.github.lucarosellini.rJava</groupId>
+            <artifactId>JRI</artifactId>
+            <version>0.9-7</version>
         </dependency>
         <dependency>
-            <groupId>org.rosuda</groupId>
-            <artifactId>jri-engine</artifactId>
-            <version>0.9.5</version>
+            <groupId>com.github.lucarosellini.rJava</groupId>
+            <artifactId>JRIEngine</artifactId>
+            <version>0.9-7</version>
         </dependency>
         <dependency>
-            <groupId>org.rosuda</groupId>
-            <artifactId>rengine</artifactId>
-            <version>1.7.0</version>
+            <groupId>com.github.lucarosellini.rJava</groupId>
+            <artifactId>REngine</artifactId>
+            <version>0.9-7</version>
         </dependency>
     </dependencies>
 
@@ -56,4 +50,5 @@
         </plugins>
 
     </build>
+    <artifactId>R-extension</artifactId>
 </project>

@@ -10,7 +10,7 @@ import org.rosuda.REngine.REXPInteger;
 import org.rosuda.REngine.REXPLogical;
 import org.rosuda.REngine.REXPMismatchException;
 import org.rosuda.REngine.REXPString;
-
+import org.rosuda.REngine.REngine;
 import org.rosuda.REngine.REngineException;
 import org.rosuda.REngine.JRI.JRIEngine;
 import org.wso2.siddhi.core.config.SiddhiContext;
@@ -21,7 +21,6 @@ import org.wso2.siddhi.core.event.in.InStream;
 import org.wso2.siddhi.core.executor.expression.ExpressionExecutor;
 import org.wso2.siddhi.core.query.processor.transform.TransformProcessor;
 import org.wso2.siddhi.query.api.definition.Attribute;
-import org.wso2.siddhi.query.api.definition.Attribute.Type;
 import org.wso2.siddhi.query.api.definition.StreamDefinition;
 import org.wso2.siddhi.query.api.expression.Expression;
 import org.wso2.siddhi.query.api.expression.constant.StringConstant;
@@ -45,16 +44,8 @@ public class RTransformProcessor extends TransformProcessor {
 	REXP script;
 	REXP env;
 	
-	static JRIEngine re;
+	static REngine re;
 	static Logger log = Logger.getLogger("RTransformProcessor");
-
-	static {
-		try {
-			re = new JRIEngine();
-		} catch (REngineException e) {
-			log.info(e.getMessage());
-		}
-	}
 
 	/* (non-Javadoc)
 	 * @see org.wso2.siddhi.core.query.processor.transform.TransformProcessor#processEvent(org.wso2.siddhi.core.event.in.InEvent)
@@ -122,7 +113,7 @@ public class RTransformProcessor extends TransformProcessor {
 				log.info(e.getMessage());
 			}
 		}
-		return null; //??
+		return null;
 
 	}
 
@@ -153,10 +144,17 @@ public class RTransformProcessor extends TransformProcessor {
 			StreamDefinition inStreamDefinition,
 			StreamDefinition outStreamDefinition, String elementId,
 			SiddhiContext siddhiContext) {
+		
+		try {
+			// Get the JRIEngine or create one
+			re=JRIEngine.createEngine();
+		} catch (REngineException e) {
+			log.info(e.getMessage());
+		}
+		
 		if (expressions.length != 3) {
 			log.error("Parameters count is not matching, There should be three parameters ");
 		}
-
 		String scriptString = ((StringConstant) expressions[0]).getValue();
 		String temp = ((StringConstant) expressions[1]).getValue().trim();
 		String outputString = ((StringConstant) expressions[2]).getValue();
@@ -171,6 +169,10 @@ public class RTransformProcessor extends TransformProcessor {
 			duration = Integer.parseInt(temp.substring(0, temp.length() - 3)
 					.trim()) * 60 * 1000;
 			lastRun = System.currentTimeMillis();
+		} else if (temp.endsWith("h")) {
+			duration = Integer.parseInt(temp.substring(0, temp.length() - 3)
+					.trim()) * 60 * 60 * 1000;
+			lastRun = System.currentTimeMillis();
 		} else {
 			eventCount = Integer.parseInt(temp);
 			time = false;
@@ -180,7 +182,7 @@ public class RTransformProcessor extends TransformProcessor {
 				.name("ROutputStream");
 		String[] vars = outputString.split(",");
 		for (String var : vars) {
-			streamDef = streamDef.attribute(var, Attribute.Type.DOUBLE);
+			streamDef = streamDef.attribute(var.trim(), Attribute.Type.DOUBLE);
 		}
 		this.outStreamDefinition = streamDef;
 		eventAttributes = inStreamDefinition.getAttributeList();
