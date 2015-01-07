@@ -26,92 +26,85 @@ import org.wso2.siddhi.query.api.expression.Expression;
 import org.wso2.siddhi.query.api.expression.constant.StringConstant;
 import org.wso2.siddhi.query.api.extension.annotation.SiddhiExtension;
 
+public abstract class RTransformProcessor extends TransformProcessor {
 
-
-@SiddhiExtension(namespace = "R", function = "runScript")
-public class RTransformProcessor extends TransformProcessor {
-
-//	String script;
 	boolean time = true;
 	int eventCount;
 	long lastRun;
 	long duration;
-	
+
 	List<Attribute> eventAttributes;
 	List<InEvent> eventList = new ArrayList<InEvent>();
-	
+
 	REXP outputs;
 	REXP script;
 	REXP env;
-	
+
 	static REngine re;
 	static Logger log = Logger.getLogger("RTransformProcessor");
 
-	/* (non-Javadoc)
-	 * @see org.wso2.siddhi.core.query.processor.transform.TransformProcessor#processEvent(org.wso2.siddhi.core.event.in.InEvent)
-	 */
 	@Override
 	protected InStream processEvent(InEvent inEvent) {
 		eventList.add(inEvent);
-		boolean run = false;
 		if (time) {
 			if (System.currentTimeMillis() >= lastRun + duration) {
-				run = true;
 				lastRun = System.currentTimeMillis();
+				return runScript(inEvent.getStreamId());
 			}
 		} else {
-			if (eventList.size()==eventCount) {
-				run = true;
+			if (eventList.size() == eventCount) {
+				return runScript(inEvent.getStreamId());
 			}
 		}
+		return null;
+	}
 
-		if (run) {			
-			try {
-				REXP eventData;
-				Attribute attr;
-				for (int j = 0; j < eventAttributes.size(); j++) {
-					attr = eventAttributes.get(j);
-					switch(attr.getType()) {
-						case DOUBLE:
-							eventData = doubleToREXP(eventList, j);
-							break;
-						case FLOAT:
-							eventData = floatToREXP(eventList, j);
-							break;
-						case INT:
-							eventData = intToREXP(eventList, j);
-							break;
-						case STRING:
-							eventData = stringToREXP(eventList, j);
-							break;
-						case LONG:
-							eventData = longToREXP(eventList, j);
-							break;
-						case BOOL:
-							eventData = boolToREXP(eventList, j);
-							break;
-						default:
-							continue;
-					}
-					re.assign(attr.getName(), eventData, env);
+	private InEvent runScript(String streamId) {
+		try {
+			REXP eventData;
+			Attribute attr;
+			for (int j = 0; j < eventAttributes.size(); j++) {
+				attr = eventAttributes.get(j);
+				switch (attr.getType()) {
+				case DOUBLE:
+					eventData = doubleToREXP(eventList, j);
+					break;
+				case FLOAT:
+					eventData = floatToREXP(eventList, j);
+					break;
+				case INT:
+					eventData = intToREXP(eventList, j);
+					break;
+				case STRING:
+					eventData = stringToREXP(eventList, j);
+					break;
+				case LONG:
+					eventData = longToREXP(eventList, j);
+					break;
+				case BOOL:
+					eventData = boolToREXP(eventList, j);
+					break;
+				default:
+					continue;
 				}
-				re.eval(script, env, false);
-				REXP x = re.eval(outputs, env, true);
-				
-				double[] out = x.asDoubles();
-				Object[] data = new Object[out.length];
-				for (int i = 0; i < out.length; i++) {
-					data[i] = out[i];
-					log.info(out[i]);
-				}
-				eventList.clear();
-				return new InEvent(inEvent.getStreamId(),
-						System.currentTimeMillis(), data);
-			} catch (REXPMismatchException e) {
-				log.info(e.getMessage());
-			} catch (REngineException e) {
-				log.info(e.getMessage());
+				re.assign(attr.getName(), eventData, env);
 			}
+			re.eval(script, env, false);
+			REXP x = re.eval(outputs, env, true);
+
+			double[] out = x.asDoubles();
+			Object[] data = new Object[out.length];
+			for (int i = 0; i < out.length; i++) {
+				data[i] = out[i];
+				log.info(out[i]);
+			}
+
+			eventList.clear();
+			return new InEvent(streamId, System.currentTimeMillis(), data);
+		} catch (REXPMismatchException e) {
+			log.info(e.getMessage());
+		} catch (REngineException e) {
+			log.info(e.getMessage());
 		}
 		return null;
 
@@ -138,26 +131,19 @@ public class RTransformProcessor extends TransformProcessor {
 	protected void restoreState(Object[] objects) {
 	}
 
-	@Override
-	protected void init(Expression[] expressions,
-			List<ExpressionExecutor> expressionExecutors,
-			StreamDefinition inStreamDefinition,
-			StreamDefinition outStreamDefinition, String elementId,
-			SiddhiContext siddhiContext) {
-		
+	protected void initialize(String scriptString, String temp,
+			String outputString) {
 		try {
 			// Get the JRIEngine or create one
-			re=JRIEngine.createEngine();
+			re = JRIEngine.createEngine();
+			// Create a new R environment
+			env = re.newEnvironment(null, true);
 		} catch (REngineException e) {
 			log.info(e.getMessage());
+		} catch (REXPMismatchException e) {
+			log.info(e.getMessage());
 		}
-		
-		if (expressions.length != 3) {
-			log.error("Parameters count is not matching, There should be three parameters ");
-		}
-		String scriptString = ((StringConstant) expressions[0]).getValue();
-		String temp = ((StringConstant) expressions[1]).getValue().trim();
-		String outputString = ((StringConstant) expressions[2]).getValue();
+
 		log.info(scriptString);
 		log.info(outputString);
 
@@ -186,19 +172,16 @@ public class RTransformProcessor extends TransformProcessor {
 		}
 		this.outStreamDefinition = streamDef;
 		eventAttributes = inStreamDefinition.getAttributeList();
-		
-		//outputString = "c(" + outputString + ")";
-		outputString = new StringBuilder("c(").append(outputString).append(")").toString();
-		
+
+		// outputString = "c(" + outputString + ")";
+		outputString = new StringBuilder("c(").append(outputString).append(")")
+				.toString();
+
 		try {
-			// Create a new R environment 
-			env = re.newEnvironment(null, true);
 			// Parse the expression
 			outputs = re.parse(outputString, false);
 			// Parse the script
 			script = re.parse(scriptString, false);
-		} catch (REXPMismatchException e) {
-			log.info(e.getMessage());
 		} catch (REngineException e) {
 			log.info(e.getMessage());
 		}
@@ -208,53 +191,53 @@ public class RTransformProcessor extends TransformProcessor {
 	public void destroy() {
 		re.close();
 	}
-	
-	private REXP doubleToREXP(List<InEvent> list, int index){
+
+	private REXP doubleToREXP(List<InEvent> list, int index) {
 		double[] arr = new double[list.size()];
-		for(int i = 0; i < list.size(); i++) {
+		for (int i = 0; i < list.size(); i++) {
 			arr[i] = (Double) list.get(i).getData(index);
 		}
 		return new REXPDouble(arr);
 	}
-	
-	private REXP floatToREXP(List<InEvent> list, int index){
+
+	private REXP floatToREXP(List<InEvent> list, int index) {
 		double[] arr = new double[list.size()];
-		for(int i = 0; i < list.size(); i++) {
+		for (int i = 0; i < list.size(); i++) {
 			arr[i] = (Float) list.get(i).getData(index);
 		}
 		return new REXPDouble(arr);
 	}
-	
-	private REXP intToREXP(List<InEvent> list, int index){
+
+	private REXP intToREXP(List<InEvent> list, int index) {
 		int[] arr = new int[list.size()];
-		for(int i = 0; i < list.size(); i++) {
+		for (int i = 0; i < list.size(); i++) {
 			arr[i] = (Integer) list.get(i).getData(index);
 		}
 		return new REXPInteger(arr);
 	}
-	
-	private REXP longToREXP(List<InEvent> list, int index){
+
+	private REXP longToREXP(List<InEvent> list, int index) {
 		int[] arr = new int[list.size()];
-		for(int i = 0; i < list.size(); i++) {
+		for (int i = 0; i < list.size(); i++) {
 			arr[i] = ((Long) list.get(i).getData(index)).intValue();
 		}
 		return new REXPInteger(arr);
 	}
-	
-	private REXP stringToREXP(List<InEvent> list, int index){
+
+	private REXP stringToREXP(List<InEvent> list, int index) {
 		String[] arr = new String[list.size()];
-		for(int i = 0; i < list.size(); i++) {
+		for (int i = 0; i < list.size(); i++) {
 			arr[i] = (String) list.get(i).getData(index);
 		}
 		return new REXPString(arr);
 	}
-	
-	private REXP boolToREXP(List<InEvent> list, int index){
+
+	private REXP boolToREXP(List<InEvent> list, int index) {
 		boolean[] arr = new boolean[list.size()];
-		for(int i = 0; i < list.size(); i++) {
+		for (int i = 0; i < list.size(); i++) {
 			arr[i] = (Boolean) list.get(i).getData(index);
 		}
 		return new REXPLogical(arr);
 	}
-	
+
 }
